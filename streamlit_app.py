@@ -3,8 +3,14 @@
 import streamlit as st
 import pandas as pd
 import re
-import openai
 import os
+
+# openai 라이브러리 import 시 예외 처리
+try:
+    import openai
+except ModuleNotFoundError:
+    st.error("⚠️ openai 모듈이 설치되어 있지 않습니다.\nStreamlit Cloud의 Settings > Manage App > Packages 에서 `openai` 패키지를 추가해 주세요.")
+    st.stop()
 
 # OpenAI API 키 설정 (Streamlit Cloud의 secrets 사용 권장)
 openai.api_key = st.secrets["OPENAI_API_KEY"] if "OPENAI_API_KEY" in st.secrets else os.getenv("OPENAI_API_KEY")
