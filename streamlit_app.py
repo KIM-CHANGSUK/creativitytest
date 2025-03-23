@@ -101,7 +101,7 @@ if area_index < len(st.session_state.area_keys):
         st.session_state.scores[area] += score
 
         st.session_state.step += 1
-        st.experimental_rerun()
+        st.rerun()
 
 else:
     st.header("✅ 검사 결과")
