@@ -1,14 +1,8 @@
-# 창의력 검사 프로그램
+# Streamlit 창의력 검사 프로그램
 
-import ipywidgets as widgets
-from IPython.display import display, clear_output, FileLink
+import streamlit as st
 import pandas as pd
-from tqdm.notebook import tqdm
 import re
-
-# 스타일 설정
-style = {'description_width': 'initial'}
-layout = widgets.Layout(width='80%', height='200px')
 
 # 문항 구성
 questions = {
@@ -50,7 +44,6 @@ questions = {
 }
 
 # 점수 계산 함수
-
 def count_ideas(answer):
     ideas = re.split(r'[\,\n]+', answer.strip())
     return len([idea for idea in ideas if idea.strip()])
@@ -75,94 +68,62 @@ def calculate_score(area_name, answer):
         return elaboration_score(answer) + originality_score(answer)
     return 0
 
-# 창의력 검사 클래스
-class CreativityTest:
-    def __init__(self):
-        self.current_area = 0
-        self.current_question = 0
-        self.answers = {}
-        self.scores = {}
+# Streamlit UI
+st.set_page_config(page_title="창의력 검사", layout="wide")
+st.title("🧠 창의력 검사 프로그램")
 
-        self.progress = widgets.IntProgress(value=0, max=25, description='진행률:')
-        self.question_label = widgets.HTML()
-        self.answer_text = widgets.Textarea(layout=layout, style=style)
-        self.next_button = widgets.Button(description='다음', button_style='primary')
-        self.score_display = widgets.HTML()
-        self.export_button = widgets.Button(description='결과 엑셀 저장', button_style='success')
+if 'step' not in st.session_state:
+    st.session_state.step = 0
+    st.session_state.answers = {}
+    st.session_state.scores = {}
+    st.session_state.area_keys = list(questions.keys())
 
-        self.next_button.on_click(self.next_question)
-        self.export_button.on_click(self.export_results)
-        self.update_display()
+area_index = st.session_state.step // 5
+question_index = st.session_state.step % 5
 
-    def update_display(self):
-        clear_output(wait=True)
-        display(self.progress)
+if area_index < len(st.session_state.area_keys):
+    area = st.session_state.area_keys[area_index]
+    question = questions[area][question_index]
 
-        if self.current_area < len(questions):
-            area_name = list(questions.keys())[self.current_area]
-            question = questions[area_name][self.current_question]
+    st.markdown(f"### {area} 영역 - 문항 {question_index + 1}/5")
+    st.write(question)
 
-            card_html = f"""
-            <div style='border: 2px solid #ccc; padding: 20px; margin: 10px 0; border-radius: 10px;'>
-                <h3>{area_name} 영역 - 문항 {self.current_question + 1}/5</h3>
-                <p>{question}</p>
-            </div>
-            """
-            self.question_label.value = card_html
-            display(self.question_label)
-            display(self.answer_text)
-            display(self.next_button)
-        else:
-            self.show_results()
+    answer = st.text_area("답변을 입력하세요", key=f"{area}_{question_index}")
 
-    def next_question(self, b):
-        area_name = list(questions.keys())[self.current_area]
+    if st.button("다음"):
+        if area not in st.session_state.answers:
+            st.session_state.answers[area] = []
+        st.session_state.answers[area].append(answer)
 
-        if area_name not in self.answers:
-            self.answers[area_name] = []
-        self.answers[area_name].append(self.answer_text.value)
+        score = calculate_score(area, answer)
+        if area not in st.session_state.scores:
+            st.session_state.scores[area] = 0
+        st.session_state.scores[area] += score
 
-        score = calculate_score(area_name, self.answer_text.value)
-        if area_name not in self.scores:
-            self.scores[area_name] = 0
-        self.scores[area_name] += score
+        st.session_state.step += 1
+        st.experimental_rerun()
 
-        self.current_question += 1
-        if self.current_question >= 5:
-            self.current_area += 1
-            self.current_question = 0
+else:
+    st.header("✅ 검사 결과")
+    total = 0
+    for area, score in st.session_state.scores.items():
+        st.subheader(f"{area}: {score}점")
+        total += score
+    st.markdown(f"### 총점: **{total}점**")
 
-        self.progress.value = self.current_area * 5 + self.current_question
-        self.answer_text.value = ''
-        self.update_display()
+    df = pd.DataFrame([
+        {
+            "영역": area,
+            "문항 번호": i+1,
+            "답변": ans,
+            "점수": calculate_score(area, ans)
+        }
+        for area in st.session_state.answers
+        for i, ans in enumerate(st.session_state.answers[area])
+    ])
 
-    def show_results(self):
-        results_html = "<h2>검사 결과</h2>"
-        total_score = 0
-
-        for area, score in self.scores.items():
-            results_html += f"<h3>{area}: {score}점</h3>"
-            total_score += score
-
-        results_html += f"<h2>총점: {total_score}점</h2>"
-        self.score_display.value = results_html
-        display(self.score_display)
-        display(self.export_button)
-
-    def export_results(self, b):
-        data = []
-        for area in self.answers:
-            for i, answer in enumerate(self.answers[area]):
-                data.append({
-                    '영역': area,
-                    '문항 번호': i + 1,
-                    '답변': answer,
-                    '점수': calculate_score(area, answer)
-                })
-
-        df = pd.DataFrame(data)
-        df.to_excel("창의력검사_결과.xlsx", index=False)
-        display(FileLink("창의력검사_결과.xlsx"))
-
-# 창의력 검사 시작
-test = CreativityTest()
+    st.download_button(
+        label="📥 결과 엑셀 다운로드",
+        data=df.to_excel(index=False, engine='openpyxl'),
+        file_name="창의력검사_결과.xlsx"
+    )
