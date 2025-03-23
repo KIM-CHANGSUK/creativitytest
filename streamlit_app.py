@@ -1,8 +1,13 @@
-# Streamlit 창의력 검사 프로그램
+# Streamlit + GPT 창의력 검사 프로그램
 
 import streamlit as st
 import pandas as pd
 import re
+import openai
+import os
+
+# OpenAI API 키 설정 (Streamlit Cloud의 secrets 사용 권장)
+openai.api_key = st.secrets["OPENAI_API_KEY"] if "OPENAI_API_KEY" in st.secrets else os.getenv("OPENAI_API_KEY")
 
 # 문항 구성
 questions = {
@@ -43,39 +48,39 @@ questions = {
     ]
 }
 
-# 점수 계산 함수
-def count_ideas(answer):
-    ideas = re.split(r'[\,\n]+', answer.strip())
-    return len([idea for idea in ideas if idea.strip()])
+# GPT 채점 함수
+def gpt_score(question, answer):
+    prompt = f"""
+    다음은 창의력 검사 문항에 대한 답변입니다:
 
-def originality_score(answer):
-    words = re.findall(r'\b\w{6,}\b', answer.lower())
-    return len(set(words))
+    질문: {question}
+    답변: {answer}
 
-def elaboration_score(answer):
-    return min(len(answer.strip()) // 20, 5)
+    이 답변을 아래 기준으로 평가해 주세요:
+    - 창의성 (10점 만점): 새롭고 독창적인가?
+    - 구체성 (10점 만점): 구체적으로 설명했는가?
+    - 아이디어 수 (10점 만점): 다양한 아이디어를 언급했는가?
 
-def calculate_score(area_name, answer):
-    if area_name == "유창성":
-        return count_ideas(answer)
-    elif area_name == "독창성":
-        return originality_score(answer)
-    elif area_name == "정교성":
-        return elaboration_score(answer)
-    elif area_name == "융통성":
-        return count_ideas(answer)
-    elif area_name == "상상력":
-        return elaboration_score(answer) + originality_score(answer)
-    return 0
+    각 항목에 점수를 부여하고 간단한 피드백을 주세요.
+    """
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"GPT 오류: {str(e)}"
 
 # Streamlit UI
-st.set_page_config(page_title="창의력 검사", layout="wide")
-st.title("🧠 창의력 검사 프로그램")
+st.set_page_config(page_title="GPT 창의력 검사", layout="wide")
+st.title("🧠 GPT 기반 창의력 검사 프로그램")
 
 if 'step' not in st.session_state:
     st.session_state.step = 0
     st.session_state.answers = {}
-    st.session_state.scores = {}
+    st.session_state.gpt_scores = {}
     st.session_state.area_keys = list(questions.keys())
 
 area_index = st.session_state.step // 5
@@ -93,37 +98,36 @@ if area_index < len(st.session_state.area_keys):
     if st.button("다음"):
         if area not in st.session_state.answers:
             st.session_state.answers[area] = []
-        st.session_state.answers[area].append(answer)
+            st.session_state.gpt_scores[area] = []
 
-        score = calculate_score(area, answer)
-        if area not in st.session_state.scores:
-            st.session_state.scores[area] = 0
-        st.session_state.scores[area] += score
+        st.session_state.answers[area].append(answer)
+        gpt_result = gpt_score(question, answer)
+        st.session_state.gpt_scores[area].append(gpt_result)
 
         st.session_state.step += 1
         st.rerun()
 
 else:
-    st.header("✅ 검사 결과")
-    total = 0
-    for area, score in st.session_state.scores.items():
-        st.subheader(f"{area}: {score}점")
-        total += score
-    st.markdown(f"### 총점: **{total}점**")
+    st.header("✅ 검사 결과 (GPT 평가 기반)")
+    data = []
+    for area in st.session_state.answers:
+        for i, ans in enumerate(st.session_state.answers[area]):
+            data.append({
+                "영역": area,
+                "문항 번호": i+1,
+                "답변": ans,
+                "GPT 평가": st.session_state.gpt_scores[area][i]
+            })
+    df = pd.DataFrame(data)
 
-    df = pd.DataFrame([
-        {
-            "영역": area,
-            "문항 번호": i+1,
-            "답변": ans,
-            "점수": calculate_score(area, ans)
-        }
-        for area in st.session_state.answers
-        for i, ans in enumerate(st.session_state.answers[area])
-    ])
+    for row in data:
+        st.subheader(f"{row['영역']} - 문항 {row['문항 번호']}")
+        st.markdown(f"**답변:** {row['답변']}")
+        st.markdown(f"**GPT 평가:**\n{row['GPT 평가']}")
 
     st.download_button(
-        label="📥 결과 엑셀 다운로드",
-        data=df.to_excel(index=False, engine='openpyxl'),
-        file_name="창의력검사_결과.xlsx"
+        label="📥 GPT 평가 포함 결과 다운로드",
+        data=df.to_csv(index=False).encode('utf-8-sig'),
+        file_name="GPT_창의력검사_결과.csv",
+        mime="text/csv"
     )
